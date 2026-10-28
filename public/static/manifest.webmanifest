@@ -1,0 +1,10 @@
+{
+  "id": "/", "name": "PTS · Permissão de Trabalho Seguro", "short_name": "PTS",
+  "lang": "pt-BR", "start_url": "/", "scope": "/", "display": "standalone",
+  "background_color": "#EDEFF1", "theme_color": "#191D25",
+  "description": "Protótipo acadêmico de emissão e controle de PTS.",
+  "icons": [
+    {"src":"/static/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"/static/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}
