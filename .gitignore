@@ -2,10 +2,12 @@ venv/
 __pycache__/
 *.pyc
 .env
+.env.local
 pts.db
 .venv/
 .pytest_cache/
 .pytest-tmp/
+.neon-test-tmp/
 .vercel/
 test-results/
 backups/
@@ -13,3 +15,5 @@ backups/
 *.db-*
 *.dump
 *.log
+.neon
+node_modules/
