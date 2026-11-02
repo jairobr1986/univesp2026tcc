@@ -8,6 +8,38 @@ PDF e histórico. Pode ser instalado como PWA no celular.
 respeitando as cotas dos serviços. O projeto está preparado para publicação;
 criar as contas, fornecer as variáveis e executar o deploy continuam necessários.
 
+## Proteção das fotos e assinaturas
+
+### Link gratuito para WhatsApp e e-mail
+
+Nos detalhes da PTS, use **Gerar link do PDF para WhatsApp/e-mail**, confirme o
+aviso e toque novamente em **Abrir WhatsApp/e-mail com link do PDF**. Confira o
+destinatário e envie a mensagem. A segunda ação permite abrir o aplicativo sem
+bloqueio de pop-up após gerar o link. Não é envio automático nem anexo: o
+destinatário baixa o PDF pelo link, sem login, durante 15 minutos. Não há
+contratação de API de mensagens; o download usa os recursos da hospedagem.
+
+Qualquer pessoa com o link pode baixar o documento, inclusive fotos e assinaturas.
+Não encaminhe a terceiros. Encerrar/cancelar a PTS invalida o link anterior;
+gere outro se necessário. Expirar o link não apaga PDFs que já foram baixados.
+O aplicativo registra a geração no histórico, sem gravar o token. Use a URL
+HTTPS publicada para que o destinatário tenha acesso; localhost só funciona
+no computador onde o servidor está sendo executado.
+
+A versão atual exige `EVIDENCE_KEY` para AES-256-GCM. Antes de iniciar:
+
+```powershell
+python -m pip install -r requirements.txt
+python manage.py crypto-key
+```
+
+A chave é salva no `.env`, sem ser exibida. Na Vercel, configure a variável secreta
+`EVIDENCE_KEY` antes do deploy. Para imagens já existentes, execute a migração
+explícita `python manage.py encrypt-evidence` (simulação) e depois `--apply`, com
+backup privado e conexão ao banco correto. Não há leitura silenciosa de imagens
+antigas sem criptografia. Retenção, descarte e passos de produção estão em
+[PRIVACIDADE.md](PRIVACIDADE.md). Nenhum registro é apagado automaticamente.
+
 ## Primeiro acesso: qual é o usuário e a senha?
 
 **Não existe usuário nem senha padrão.** Você escolhe os dois ao executar a
@@ -127,7 +159,9 @@ armazenado no banco compartilhado. Na Vercel o cookie também exige HTTPS.
 7. Baixe ou compartilhe o PDF. Para encerrar, registre nova assinatura e foto.
 
 Modificar dados ou checklists antes da emissão descarta as assinaturas já
-coletadas. O número não é calculado no celular. Repetir a mesma requisição de
+coletadas. Alterar somente os contatos de envio (e-mail, telefone ou canal)
+preserva as fotos e assinaturas; os contatos podem ser preenchidos após a coleta.
+O número não é calculado no celular. Repetir a mesma requisição de
 emissão usa uma chave de idempotência para evitar registros duplicados.
 
 Permissões abertas com validade vencida são sinalizadas na interface. Não há

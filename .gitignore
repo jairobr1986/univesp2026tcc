@@ -7,6 +7,7 @@ pts.db
 .venv/
 .pytest_cache/
 .pytest-tmp/
+.privacy-tests*/
 .neon-test-tmp/
 .vercel/
 test-results/

@@ -24,6 +24,7 @@ from catalog import CATS, CHECKLISTS, CHECKLIST_VERSION, EPI_COMUM
 from database import attempts, audit, evidence, init_schema, make_engine, next_number, permits, upsert
 from pdf_generator import gerar_pdf
 import validation
+from evidence_crypto import EvidenceCipher, EvidenceError
 
 load_dotenv()
 TZ = ZoneInfo("America/Sao_Paulo")
@@ -42,6 +43,7 @@ def create_app(config=None):
     app = Flask(__name__, static_folder="public/static", static_url_path="/static")
     app.config.update(
         SECRET_KEY=os.environ.get("SECRET_KEY"), DATABASE_URL=os.environ.get("DATABASE_URL"),
+        EVIDENCE_KEY=os.environ.get("EVIDENCE_KEY"),
         USERS=json.loads(os.environ.get("APP_USERS", "{}")), MAX_CONTENT_LENGTH=3_500_000,
         SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Strict",
         SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")) or os.environ.get("COOKIE_SECURE") == "1",
@@ -61,6 +63,8 @@ def create_app(config=None):
             raise RuntimeError("Configure SECRET_KEY na Vercel.")
         app.secret_key = secrets.token_hex(32)
         app.logger.warning("Execute python manage.py setup para configurar o acesso local.")
+    cipher = EvidenceCipher(app.config.get("EVIDENCE_KEY"))
+    app.extensions["evidence_cipher"] = cipher
     engine = make_engine(app.config.get("DATABASE_URL"))
     app.extensions["db"] = engine
     dummy_hash = generate_password_hash(secrets.token_hex(20))
@@ -96,7 +100,7 @@ def create_app(config=None):
         for key in ("imagem", "foto"):
             raw, mime = sig[key]
             eid = uuid.uuid4().hex
-            conn.execute(evidence.insert().values(id=eid, permit_id=ident, mime=mime, content=raw))
+            conn.execute(evidence.insert().values(id=eid, permit_id=ident, mime=mime, content=cipher.encrypt(raw, eid, ident, mime)))
             sig[key] = "/api/evidencias/" + eid
         return sig
 
@@ -108,8 +112,13 @@ def create_app(config=None):
                 eid = sig.get(key, "").rsplit("/", 1)[-1]
                 row = conn.execute(select(evidence).where(and_(
                     evidence.c.id == eid, evidence.c.permit_id == record["id"]))).mappings().first()
-                sig[key] = ("data:" + row["mime"] + ";base64," + base64.b64encode(row["content"]).decode()) if row else None
+                sig[key] = ("data:" + row["mime"] + ";base64," + base64.b64encode(cipher.decrypt(row["content"], row["id"], row["permit_id"], row["mime"])).decode()) if row else None
         return record
+
+    @app.errorhandler(EvidenceError)
+    def evidence_failure(error):
+        app.logger.error("Falha na leitura de evidência protegida; verifique migração/chave.")
+        return jsonify(erro="Evidência indisponível. Contate o administrador."), 503
 
     @app.before_request
     def protect():
@@ -330,7 +339,7 @@ def create_app(config=None):
             row = conn.execute(select(evidence).where(evidence.c.id == eid)).mappings().first()
         if not row:
             abort(404)
-        return send_file(BytesIO(row["content"]), mimetype=row["mime"], max_age=0)
+        return send_file(BytesIO(cipher.decrypt(row["content"], row["id"], row["permit_id"], row["mime"])), mimetype=row["mime"], max_age=0)
 
     @app.get("/api/pts/<ident>/pdf")
     def pdf(ident):
@@ -351,6 +360,17 @@ def create_app(config=None):
             content = gerar_pdf(pdf_record(conn, record))
         return send_file(BytesIO(content), mimetype="application/pdf", as_attachment=True,
                          download_name=record["numero"] + ".pdf", max_age=0)
+
+    @app.post("/api/pts/<ident>/link-pdf")
+    def share_pdf_link(ident):
+        require_role("admin", "operador")
+        with engine.begin() as conn:
+            record = get_record(conn, ident, lock=True)
+            token = URLSafeTimedSerializer(app.secret_key, salt="pts-pdf").dumps(
+                {"id": ident, "updatedAt": record["updatedAt"]})
+            log(conn, ident, "link_pdf_criado", {"validadeSegundos": 900})
+        # URL relativa: o navegador usa a mesma origem HTTPS do aplicativo.
+        return jsonify(url=f"/api/pts/{ident}/pdf?token={token}", expiresIn=900)
 
     @app.post("/api/pts/<ident>/enviar")
     def send(ident):

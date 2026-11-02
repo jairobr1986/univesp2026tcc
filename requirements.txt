@@ -6,3 +6,4 @@ psycopg[binary]>=3.2.3,<4
 Pillow>=12.0,<13
 tzdata>=2025.2
 twilio>=9.3.2,<10
+cryptography>=46.0.3,<47

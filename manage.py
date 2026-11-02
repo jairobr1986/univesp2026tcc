@@ -17,6 +17,8 @@ from werkzeug.security import generate_password_hash
 from catalog import CHECKLISTS, EPI_COMUM
 from database import audit, evidence, init_schema, make_engine, permits, sequences, upsert
 from validation import image
+from evidence_crypto import configured_cipher, EvidenceError
+from privacy_maintenance import encrypt_existing, purge_expired, set_hold
 
 ROOT = Path(__file__).resolve().parent
 
@@ -55,6 +57,7 @@ def import_legacy(engine, source):
         rows = legacy.execute("SELECT * FROM pts ORDER BY created_at").fetchall()
     finally:
         legacy.close()
+    cipher = configured_cipher()
     imported = skipped = 0
     # Uma transação: qualquer falha desfaz a importação completa.
     with engine.begin() as conn:
@@ -110,7 +113,7 @@ def import_legacy(engine, source):
                         continue
                     raw, mime = image(sig[key])
                     eid = uuid.uuid4().hex
-                    conn.execute(evidence.insert().values(id=eid, permit_id=ident, mime=mime, content=raw))
+                    conn.execute(evidence.insert().values(id=eid, permit_id=ident, mime=mime, content=cipher.encrypt(raw, eid, ident, mime)))
                     sig[key] = "/api/evidencias/" + eid
             from sqlalchemy import update
             conn.execute(update(permits).where(permits.c.id == ident).values(record=json.dumps(record, ensure_ascii=False)))
@@ -123,14 +126,38 @@ def import_legacy(engine, source):
 
 def main():
     parser = argparse.ArgumentParser(description="Manutenção do protótipo PTS")
-    parser.add_argument("command", choices=("setup", "init-db", "import-legacy", "backup-sqlite"))
+    parser.add_argument("command", choices=("setup", "init-db", "import-legacy", "backup-sqlite", "crypto-key", "encrypt-evidence", "purge-expired", "retention-hold", "retention-release"))
     parser.add_argument("path", nargs="?")
+    parser.add_argument("--apply", action="store_true", help="Confirma migração ou descarte; padrão: simulação")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
     if args.command == "setup":
         setup()
         return
+    if args.command == "crypto-key":
+        env = ROOT / ".env"
+        if os.environ.get("EVIDENCE_KEY"):
+            configured_cipher()
+            print("EVIDENCE_KEY já configurada; chave preservada.")
+        else:
+            import base64
+            set_key(str(env), "EVIDENCE_KEY", base64.b64encode(secrets.token_bytes(32)).decode())
+            print("EVIDENCE_KEY criada no .env. Faça backup privado; copie para a Vercel sem aspas externas.")
+        return
     engine = make_engine()
+    if args.command == "encrypt-evidence":
+        print(json.dumps(encrypt_existing(engine, configured_cipher(), args.apply)))
+        return
+    if args.command == "purge-expired":
+        days = int(os.environ.get("RETENTION_DAYS", "0"))
+        print(json.dumps(purge_expired(engine, days, args.apply)))
+        return
+    if args.command in ("retention-hold", "retention-release"):
+        if not args.path:
+            raise ValueError("Informe o identificador da PTS.")
+        set_hold(engine, args.path, args.command == "retention-hold")
+        print("Bloqueio de descarte atualizado.")
+        return
     if args.command == "init-db":
         init_schema(engine)
         print("Banco inicializado (esquema versão 1).")
@@ -155,5 +182,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, sqlite3.Error) as exc:
+    except (ValueError, EvidenceError, sqlite3.Error) as exc:
         raise SystemExit(str(exc))

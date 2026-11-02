@@ -99,8 +99,31 @@ def test_mobile_emission_signature_invalidation_close_pdf(browser, live_server, 
     for role in ('emitente', 'executante', 'supervisor'):
         page.locator(f'[data-action=sign][data-role={role}]').click()
         sign(page, 'Pessoa '+role)
+    # Destinatários podem ser preenchidos após as três coletas sem perdê-las.
+    images_before = page.locator('#signatures img').evaluate_all('(images)=>images.map(img=>img.src)')
+    assert len(images_before) == 6
+    page.get_by_label('Canal do contato 1', exact=True).select_option('whatsapp')
+    page.get_by_label('Contato 1', exact=True).fill('11999999999')
+    page.get_by_label('Contato 2', exact=True).fill('teste@example.com')
+    page.get_by_label('Canal do contato 3', exact=True).select_option('whatsapp')
+    page.get_by_label('Canal do contato 3', exact=True).select_option('email')
+    assert page.locator('#signatures img').evaluate_all('(images)=>images.map(img=>img.src)') == images_before
+    assert page.locator('#emit').is_enabled()
     page.locator('#emit').click()
     page.get_by_role('heading', name='Galpão final', exact=True).wait_for()
+    page.on('dialog', lambda dialog: dialog.accept())
+    page.locator('[data-action=contact][data-index="0"]').click()
+    ready = page.locator('[data-action=contact-ready][data-index="0"]')
+    ready.wait_for()
+    from urllib.parse import urlsplit, parse_qs
+    message = parse_qs(urlsplit(ready.get_attribute('data-share-url')).query)['text'][0]
+    assert 'token=' in message and '15 minutos' in message
+    assert 'anexado manualmente' not in message
+    link = message.split(': ', 1)[1].split('\n', 1)[0]
+    recipient = browser.new_context()
+    downloaded = recipient.request.get(link)
+    assert downloaded.status == 200 and downloaded.body().startswith(b'%PDF')
+    recipient.close()
     no_horizontal_overflow(page)
     with page.expect_download() as event:
         page.get_by_role('button', name='Baixar PDF', exact=True).click()

@@ -1,5 +1,7 @@
 import base64
 import io
+import os
+import secrets
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -7,13 +9,16 @@ from PIL import Image, ImageDraw
 import pytest
 from werkzeug.security import generate_password_hash
 
+# A coleta dos testes deve funcionar sem .env/chave reais.
+os.environ.setdefault("EVIDENCE_KEY", base64.b64encode(secrets.token_bytes(32)).decode())
 from app import create_app
 from catalog import CHECKLISTS, EPI_COMUM
 from database import init_schema
 
 
 @pytest.fixture
-def application(tmp_path):
+def application(tmp_path, monkeypatch):
+    monkeypatch.setenv("EVIDENCE_KEY", "dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHQ=")
     password_hash = generate_password_hash("senha-teste-123")
     app = create_app({"TESTING": True, "SECRET_KEY": "chave-exclusiva-dos-testes",
                       "DATABASE_URL": "sqlite:///" + str(tmp_path / "test.db"),
